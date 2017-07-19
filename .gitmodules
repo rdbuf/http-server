@@ -1,0 +1,9 @@
+[submodule "src/asio"]
+	path = src/asio
+	url = git@github.com:chriskohlhoff/asio.git
+[submodule "src/PEGTL"]
+	path = src/PEGTL
+	url = git@github.com:taocpp/PEGTL.git
+[submodule "src/fmt"]
+	path = src/fmt
+	url = git@github.com:fmtlib/fmt.git
