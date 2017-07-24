@@ -7,3 +7,6 @@
 [submodule "src/fmt"]
 	path = src/fmt
 	url = git@github.com:fmtlib/fmt.git
+[submodule "src/range-v3"]
+	path = src/range-v3
+	url = git@github.com:ericniebler/range-v3.git
