@@ -1,6 +1,9 @@
-add_executable (server main.cc)
+add_executable(example-server example-server.cc)
 
-target_compile_definitions(server PRIVATE FMT_HEADER_ONLY ASIO_STANDALONE)
-target_include_directories(server PUBLIC ../src ../src/asio/asio/include ../src/PEGTL/include ../src/fmt ../src/range-v3/include)
-target_link_libraries(server pthread)
-set_target_properties(server PROPERTIES LINKER_LANGUAGE CXX)
+add_dependencies(example-server http-server)
+target_link_libraries(example-server http-server pthread)
+target_include_directories(example-server PUBLIC ../src ../src/asio/asio/include)
+set_target_properties(example-server PROPERTIES LINKER_LANGUAGE CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
