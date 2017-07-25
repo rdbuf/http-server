@@ -9,7 +9,7 @@ $ git submodule update
 $ mkdir build
 $ cd build
 $ cmake ..
-$ make && test/server
+$ make && demo/example-server &
 $ chromium http://localhost:1970
 ```
 

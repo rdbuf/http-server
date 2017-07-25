@@ -1,5 +1,4 @@
-#include <experimental/filesystem>
-#include <experimental/optional>
+#include <iomanip>
 #include <iostream>
 #include <list>
 #include <mutex>
@@ -8,27 +7,23 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <iomanip>
 
-#include "range/v3/all.hpp"
 #include "asio.hpp"
 #include "fmt/format.h"
 #include "fmt/ostream.h"
+#include "range/v3/all.hpp"
 #include "tao/pegtl.hpp"
+
+#include "http-server.hh"
 
 namespace http_server {
 using asio::ip::tcp;
 namespace pegtl = tao::pegtl;
 
 namespace http {
-struct packet {
-  struct version_t {
-    int major = 1, minor = 1;
-  } version;
-  uint16_t code = 0;
-  std::string method, uri, reason, payload;
-  std::vector<std::pair<std::string, std::string>> headers;
-};
+struct packet;
+
+std::mutex _time_lock;
 std::ostream& operator<<(std::ostream& os, const http::packet& p) {
   using namespace ranges;
   if (p.code == 0) {  // request
@@ -126,7 +121,11 @@ std::ostream& operator<<(std::ostream& os, const http::packet& p) {
     std::stringstream ios;
     std::string time;
     auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    ios << std::put_time(std::gmtime(&now), "%a, %d %b %Y %H:%M:%S") << " ";
+    _time_lock.lock();
+    try {
+      ios << std::put_time(std::gmtime(&now), "%a, %d %b %Y %H:%M:%S GMT") << " ";
+    } catch (...) {}
+    _time_lock.unlock();
     std::getline(ios, time);
     return time;
   };
@@ -142,7 +141,6 @@ std::ostream& operator<<(std::ostream& os, const http::packet& p) {
 }
 }  // namespace http
 
-<<<<<<< Updated upstream
 
 // clang-format off
 namespace http::parser {
@@ -169,28 +167,6 @@ struct header_value : plus<print> {};
 struct header : seq<header_name, string<':', ' '>, header_value> {};
 
 struct payload : star<any> {};
-=======
-class server {
- public:
-  server(asio::io_service& io_service, std::function<void(const http::packet& in, http::packet& out)> appltransform,
-         uint16_t port         = 1970,
-         size_t worker_threads = 4);
-  ~server();
-  void run();
-
- private:
-  void start_accept();
-  void handle_continued_connection(asio::ip::tcp::socket&& socket);
-  void read(asio::ip::tcp::socket&& socket, asio::streambuf& buf);
-
-  asio::ip::tcp::acceptor _acceptor;
-  asio::io_service& _io_service;
-  std::vector<std::thread> _thread_pool;
-  size_t _worker_threads;
-  std::function<void(const http::packet& in, http::packet& out)> _transform;
-};
-std::ostream& operator<<(std::ostream& os, const http::packet& p);
->>>>>>> Stashed changes
 
 struct grammar : must<sor<request_line, status_line>, crlf, star<header, crlf>, crlf,
               payload, eof> {};
@@ -215,11 +191,10 @@ template<> struct action<reason_phrase> { static void apply(const auto& in, pack
     p.reason = in.string();
 }};
 template<> struct action<header_name> { static void apply(const auto& in, packet& p) {
-    p.headers.resize(p.headers.size() + 1);
-    p.headers.back().first = in.string();
+    p._last_header = p.headers.insert({std::move(in.string()), {}}).first;
 }};
 template<> struct action<header_value> { static void apply(const auto& in, packet& p) {
-    p.headers.back().second = in.string();
+    p._last_header->second = in.string();
 }};
 template<> struct action<payload> { static void apply(const auto& in, packet& p) {
     p.payload = in.string();
@@ -227,56 +202,92 @@ template<> struct action<payload> { static void apply(const auto& in, packet& p)
 } // namespace http::parser
 // clang-format on
 
-class tcp_server {
-public:
-  tcp_server(asio::io_service &io_service, uint16_t port = 1970,
-             size_t worker_threads = 4)
-      : _acceptor(io_service, tcp::endpoint(tcp::v4(), port)),
-        _io_service(io_service) {}
 
-  void start_accept(std::function<void(const http::packet& in, http::packet& out)> f) {
-    tcp::socket socket(_io_service);
-    _acceptor.async_accept(socket, [&](const std::error_code &error) {
-      asio::streambuf buf;
-      asio::async_read_until(socket, buf, "\r\n\r\n", [&](const std::error_code &ec, size_t cnt) {
-        if (ec != asio::error::eof)
-          std::cerr << fmt::format("error: {}\n", ec);
-        std::cerr << fmt::format("{} bytes received\n", cnt);
+server::server(asio::io_service& io_service, 
+               std::function<void(const http::packet& in, http::packet& out)> transform,
+               uint16_t port,
+               size_t worker_threads)
+    : _acceptor(io_service, tcp::endpoint(tcp::v4(), port)), _transform(transform), _io_service(io_service), _worker_threads(worker_threads) {}
 
-        std::istream is(&buf);
-        std::string str((std::istreambuf_iterator<char>(is)), (std::istreambuf_iterator<char>()));
-        std::string _;
-
-        http::packet request, response;
-        try {
-          pegtl::parse<http::parser::grammar, http::parser::action>(pegtl::memory_input<>(str, _), request);
-          f(request, response);
-        } catch (const pegtl::parse_error& e) {
-          std::cerr << e.what() << std::endl;
-          response.code = 406;
-        }
-
-        std::cerr << fmt::format("request:\n{}\n", request);
-        std::cerr << fmt::format("response:\n{}\n", response);
-
-        asio::async_write(socket, asio::buffer(fmt::format("{}", response)),
-                          [&](const std::error_code& ec, size_t cnt) {
-                            if (ec)
-                              std::cerr << fmt::format("error: {}\n", ec);
-                            std::cerr << fmt::format("{} bytes sent\n", cnt);
-                            // socket.close();
-                          });
-      });
-      start_accept(f);
+void server::run() {
+  _thread_pool.reserve(_worker_threads);
+  for (size_t i = 0; i < _worker_threads; ++i) {
+    _thread_pool.emplace_back([&]() {
+      start_accept();
     });
-
-    _io_service.run(); // may be called from multiple threads in order to set up
-                       // a thread pool
   }
+}
 
-private:
-  tcp::acceptor _acceptor;
-  asio::io_service &_io_service;
-  std::vector<std::thread> thread_pool;
-};
-} // namespace http_server
+server::~server() {
+  for (auto& thread : _thread_pool) {
+    if (thread.joinable()) {
+      thread.join();
+    }
+  }
+}
+
+void server::read(tcp::socket&& socket, asio::streambuf& buf) {
+  asio::async_read_until(socket, buf, "\r\n\r\n", [&](const std::error_code& ec, size_t cnt) {
+    std::cerr << "alive" << std::endl;
+    if (ec && ec != asio::error::eof)
+      std::cerr << fmt::format("error: {}\n", ec);
+    std::cerr << fmt::format("{} bytes received\n", cnt);
+
+    std::istream is(&buf);
+    std::string str(cnt, '\0');
+    is.read(&str[0], cnt);
+    std::string _;
+
+    http::packet request, response;
+    try {
+      pegtl::parse<http::parser::grammar, http::parser::action>(pegtl::memory_input<>(str, _), request);
+      if (auto it = request.headers.find("Content-Length"); it != request.headers.end()) {
+        auto body_size = stoi(it->second);
+        std::error_code ec;
+        asio::read(socket, buf, asio::transfer_exactly(body_size - buf.size()), ec);  // read the remaining bytes of the body
+        if (ec && ec != asio::error::eof) {
+          std::cerr << fmt::format("error: {}\n", ec);
+        }
+        std::string str(body_size, '\0');
+        is.read(&str[0], body_size);
+        pegtl::parse<http::parser::payload, http::parser::action>(pegtl::memory_input<>(str, _), request);
+      }
+      _transform(request, response);
+    } catch (const pegtl::parse_error& e) {
+      std::cerr << e.what() << std::endl;
+      response.code = 406;
+    }
+
+    std::cerr << fmt::format("request:\n{}\n", request);
+    std::cerr << fmt::format("response:\n{}\n", response);
+
+    asio::async_write(socket, asio::buffer(fmt::format("{}", response)),
+                      [&](const std::error_code& ec, size_t cnt) {
+                        if (ec)
+                          std::cerr << fmt::format("error: {}\n", ec);
+                        std::cerr << fmt::format("{} bytes sent\n", cnt);
+                        if (socket.is_open()) {
+                          handle_continued_connection(std::move(socket));
+                        }
+                      });
+  });
+}
+
+void server::start_accept() {
+  tcp::socket socket(_io_service);
+  _acceptor.async_accept(socket, [&](const std::error_code& error) {
+    asio::streambuf buf;
+    read(std::move(socket), buf);
+    start_accept();
+  });
+  _io_service.run();
+}
+
+void server::handle_continued_connection(asio::ip::tcp::socket&& socket) {
+  _acceptor.async_accept(socket, [&](const std::error_code& error) {
+    asio::streambuf buf;
+    read(std::move(socket), buf);
+  });
+}
+
+}  // namespace http_server

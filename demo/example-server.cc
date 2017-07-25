@@ -2,8 +2,7 @@
 
 int main() {
   asio::io_service io_service;
-  http_server::tcp_server server(io_service, 1970);
-  server.start_accept([](const auto& request, auto& response) {
+  http_server::server server(io_service, [](const auto& request, auto& response) {
     response.code    = 200;
     response.payload = R"(
       <head></head>
@@ -12,7 +11,7 @@ int main() {
       </body>
     )";
     response.headers = {
-      {"Content-Type", "text/html"}
-    };
+      {"Content-Type", "text/html"}};
   });
+  server.run();
 }
