@@ -2,8 +2,8 @@
 
 int main() {
   asio::io_service io_service;
-  http_server::server server(io_service, 1970);
-  server.start_accept([](const auto& request, auto& response) {
+  http_server::server server(io_service, 1970, 4);
+  server.run([](const auto& request, auto& response) {
     response.code    = 200;
     response.payload = R"(
       <head></head>

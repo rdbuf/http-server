@@ -1,19 +1,20 @@
 #pragma once
 
-#include <iostream>
 #include <functional>
+#include <iostream>
 
 #include "asio.hpp"
 
 namespace http_server {
-  
+
 namespace http::parser {
-template<class> struct action;
+template<class>
+struct action;
 }  // namespace http::parser
 
 namespace http {
 class packet {
-public:
+ public:
   struct version_t {
     int major = 1, minor = 1;
   } version;
@@ -21,22 +22,26 @@ public:
   std::string method, uri, reason, payload;
   std::unordered_map<std::string, std::string> headers;
 
-protected:  // ugly but i-currently-dk how to do it better with pegtl
- template<class> friend struct parser::action;
- decltype(headers.begin()) _last_header;
+ protected:  // ugly but i-currently-dk how to do it better with pegtl
+  template<class> friend struct parser::action;
+  decltype(headers.begin()) _last_header;
 };
 }  // namespace http
 
 class server {
-public:
+ public:
   server(asio::io_service& io_service, uint16_t port = 1970,
-             size_t worker_threads = 4);
-  void start_accept(std::function<void(const http::packet& in, http::packet& out)> f);
+         size_t worker_threads = 4);
+  ~server();
+  void run(std::function<void(const http::packet& in, http::packet& out)> f);
 
-private:
- asio::ip::tcp::acceptor _acceptor;
- asio::io_service& _io_service;
- std::vector<std::thread> _thread_pool;
+ private:
+  void start_accept(std::function<void(const http::packet& in, http::packet& out)>& f);
+  asio::ip::tcp::acceptor _acceptor;
+  asio::io_service& _io_service;
+  std::vector<std::thread> _thread_pool;
+
+  size_t _worker_threads;
 };
 std::ostream& operator<<(std::ostream& os, const http::packet& p);
 

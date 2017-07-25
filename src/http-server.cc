@@ -1,3 +1,4 @@
+#include <iomanip>
 #include <iostream>
 #include <list>
 #include <mutex>
@@ -6,12 +7,11 @@
 #include <string>
 #include <unordered_map>
 #include <vector>
-#include <iomanip>
 
-#include "range/v3/all.hpp"
 #include "asio.hpp"
 #include "fmt/format.h"
 #include "fmt/ostream.h"
+#include "range/v3/all.hpp"
 #include "tao/pegtl.hpp"
 
 #include "http-server.hh"
@@ -22,6 +22,8 @@ namespace pegtl = tao::pegtl;
 
 namespace http {
 struct packet;
+
+std::mutex _time_lock;
 std::ostream& operator<<(std::ostream& os, const http::packet& p) {
   using namespace ranges;
   if (p.code == 0) {  // request
@@ -119,7 +121,11 @@ std::ostream& operator<<(std::ostream& os, const http::packet& p) {
     std::stringstream ios;
     std::string time;
     auto now = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
-    ios << std::put_time(std::gmtime(&now), "%a, %d %b %Y %H:%M:%S") << " ";
+    _time_lock.lock();
+    try {
+      ios << std::put_time(std::gmtime(&now), "%a, %d %b %Y %H:%M:%S GMT") << " ";
+    } catch (...) {}
+    _time_lock.unlock();
     std::getline(ios, time);
     return time;
   };
@@ -197,16 +203,33 @@ template<> struct action<payload> { static void apply(const auto& in, packet& p)
 // clang-format on
 
 
-server::server(asio::io_service &io_service, uint16_t port,
-                       size_t worker_threads)
-  : _acceptor(io_service, tcp::endpoint(tcp::v4(), port)),
-    _io_service(io_service) {}
+server::server(asio::io_service& io_service, uint16_t port,
+               size_t worker_threads)
+    : _acceptor(io_service, tcp::endpoint(tcp::v4(), port)), _io_service(io_service), _worker_threads(worker_threads) {}
 
-void server::start_accept(std::function<void(const http::packet& in, http::packet& out)> f) {
+void server::run(std::function<void(const http::packet& in, http::packet& out)> f) {
+  _thread_pool.reserve(_worker_threads);
+  for (size_t i = 0; i < _worker_threads; ++i) {
+    _thread_pool.emplace_back([&]() {
+      start_accept(f);
+    });
+  }
+}
+
+server::~server() {
+  for (auto& thread : _thread_pool) {
+    if (thread.joinable()) {
+      thread.join();
+    }
+  }
+}
+
+void server::start_accept(std::function<void(const http::packet& in, http::packet& out)>& f) {
   tcp::socket socket(_io_service);
-  _acceptor.async_accept(socket, [&](const std::error_code &error) {
+  _acceptor.async_accept(socket, [&](const std::error_code& error) {
     asio::streambuf buf;
-    asio::async_read_until(socket, buf, "\r\n\r\n", [&](const std::error_code &ec, size_t cnt) {
+    asio::async_read_until(socket, buf, "\r\n\r\n", [&](const std::error_code& ec, size_t cnt) {
+      std::cerr << "alive" << std::endl;
       if (ec && ec != asio::error::eof)
         std::cerr << fmt::format("error: {}\n", ec);
       std::cerr << fmt::format("{} bytes received\n", cnt);
@@ -244,13 +267,12 @@ void server::start_accept(std::function<void(const http::packet& in, http::packe
                           if (ec)
                             std::cerr << fmt::format("error: {}\n", ec);
                           std::cerr << fmt::format("{} bytes sent\n", cnt);
-                          // socket.close();
+                          socket.close();
                         });
     });
     start_accept(f);
   });
-  _io_service.run(); // may be called from multiple threads in order to set up
-                     // a thread pool
+  _io_service.run();
 }
 
-} // namespace http_server
+}  // namespace http_server
