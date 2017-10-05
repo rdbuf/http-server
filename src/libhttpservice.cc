@@ -172,31 +172,31 @@ struct grammar : must<sor<request_line, status_line>, crlf, star<header, crlf>, 
               payload, eof> {};
 
 template <class Rule> struct action : nothing<Rule> {};
-template<> struct action<method> { static void apply(const auto& in, packet& p) {
+template<> struct action<method> { template<class Input> static void apply(const Input& in, packet& p) {
     p.method = in.string();
 }};
-template<> struct action<version_number_major> { static void apply(const auto& in, packet& p) {
+template<> struct action<version_number_major> { template<class Input> static void apply(const Input& in, packet& p) {
     p.version.major = stoi(in.string());
 }};
-template<> struct action<version_number_minor> { static void apply(const auto& in, packet& p) {
+template<> struct action<version_number_minor> { template<class Input> static void apply(const Input& in, packet& p) {
     p.version.minor = stoi(in.string());
 }};
-template<> struct action<uri> { static void apply(const auto& in, packet& p) {
+template<> struct action<uri> { template<class Input> static void apply(const Input& in, packet& p) {
     p.uri = in.string();
 }};
-template<> struct action<status_code> { static void apply(const auto& in, packet& p) {
+template<> struct action<status_code> { template<class Input> static void apply(const Input& in, packet& p) {
     p.code = stoi(in.string());
 }};
-template<> struct action<reason_phrase> { static void apply(const auto& in, packet& p) {
+template<> struct action<reason_phrase> { template<class Input> static void apply(const Input& in, packet& p) {
     p.reason = in.string();
 }};
-template<> struct action<header_name> { static void apply(const auto& in, packet& p) {
+template<> struct action<header_name> { template<class Input> static void apply(const Input& in, packet& p) {
     p._last_header = p.headers.insert({std::move(in.string()), {}}).first;
 }};
-template<> struct action<header_value> { static void apply(const auto& in, packet& p) {
+template<> struct action<header_value> { template<class Input> static void apply(const Input& in, packet& p) {
     p._last_header->second = in.string();
 }};
-template<> struct action<payload> { static void apply(const auto& in, packet& p) {
+template<> struct action<payload> { template<class Input> static void apply(const Input& in, packet& p) {
     p.payload = in.string();
 }};
 } // namespace http::parser
